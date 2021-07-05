@@ -15,6 +15,10 @@ config_load network
 config_get WANPHYIF wanphy ifname
 config_get WANIF wan ifname
 
+REMOTE_IP=192.168.10.1
+VXLAN_TUN=vxlan10
+PSK=swordfish
+
 echo "config loaded, wanphyif: $WANPHYIF, wanif: $WANIF" > /dev/kmsg
 
 while [ "$(ip link show $WANPHYIF | grep UP)" == "" ]
@@ -38,12 +42,29 @@ do
     sleep 2
 done
 
+# Run ovs-monitor-ipsec
+echo "starting ovs-monitor-ipsec" > /dev/kmsg
+ovs-monitor-ipsec   \
+--pidfile=/tmp/run/openvswitch/ovs-monitor-ipsec.pid   \
+--log-file \
+--detach   \
+--monitor unix:/tmp/run/openvswitch/db.sock \
+--ike-daemon strongswan
+
 echo "configuring openvswitch" > /dev/kmsg
 ovs-vsctl add-br $WANIF
-ifconfig $WANPHYIF up
-ifconfig $WANPHYIF 0
-ovs-vsctl add-port $WANIF $WANPHYIF
+
+HWADDR=$(cat /sys/class/net/$WANPHYIF/address)
+ip link set dev $WANIF address $HWADDR
+
 ifconfig $WANIF up
+
+echo "configuring vxlan tunnel" > /dev/kmsg
+ovs-vsctl add-port $WANIF $VXLAN_TUN -- \
+set interface $VXLAN_TUN type=vxlan \
+options:remote_ip=$REMOTE_IP \
+options:psk=$PSK
+
 
 echo "creating openvswitch.configured file" > /dev/kmsg
 touch /etc/config/openvswitch.configured
